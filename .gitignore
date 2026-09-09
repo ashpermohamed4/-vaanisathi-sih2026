@@ -27,8 +27,16 @@ render.experimental.xml
 *.jks
 *.keystore
 
-# Google Services (e.g. APIs or Firebase)
-google-services.json
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.wav
+*.mp3
+*.zip
+vosk-model-*
+.env
+.venv
+env/
+venv/
 
-# Android Profiling
-*.hprof
