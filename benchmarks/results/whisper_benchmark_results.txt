@@ -1,0 +1,24 @@
+VaaniSathi — Whisper Tiny (FP32 CPU) Hindi ASR Benchmark
+Date: Sep 9, 2026
+Model: openai/whisper-tiny (72.1 MB)
+Execution Mode: Local CPU Inference (Laptop Baseline)
+
+Sentence # | Ground Truth              | Whisper Transcription      | Latency
+-----------|---------------------------|----------------------------|--------
+Sample 1   | बच्चों आज हम गिनती सीखेंगे | बच्चों आज हम गिनती सीखेंगे | 8,674ms
+Sample 2   | यह क्या है                | यह क्या है                 | 1,427ms
+Sample 3   | शाबाश बहुत अच्छा          | शाबाश बहुत अच्छा           | 3,825ms
+Sample 4   | अब सुनो और दोहराओ         | अब सुनो और दोहराओ          | 7,199ms
+Sample 5   | एक दो तीन चार पांच         | 1 2 3 4 5                  | 1,448ms
+
+Latency Statistics:
+- Min Latency  : 1,427ms
+- Mean Latency : 4,515ms (4.515 seconds)
+- Max Latency  : 8,674ms (8.674 seconds)
+- Model Load   : 790ms
+
+Evaluation vs SIH Problem Statement Requirement:
+- PS Requirement  : Real-time classroom voice interaction ≤ 3,000ms
+- Low-End Tablet Multiplier: ~1.5x - 2.0x (Est. Tablet Latency: 6.7s - 13.0s)
+- Architectural Decision  : REJECTED ❌ (Too slow for live classroom edge execution)
+- Replacement Selected    : Vosk Small Hindi (Mean: 1,635ms, 42 MB, ≤1.6s E2E) ✅

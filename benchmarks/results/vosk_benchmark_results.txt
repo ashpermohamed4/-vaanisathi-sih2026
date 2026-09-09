@@ -1,0 +1,12 @@
+VaaniSathi — Vosk Small Hindi ASR Benchmark
+Date: Sep 9, 2026
+Model: vosk-model-small-hi-0.22 (42 MB)
+
+File            | Ground Truth              | Recognized           | Latency
+----------------|---------------------------|----------------------|--------
+hindi_pcm_0.wav | बच्चों आज हम गिनती सीखेंगे | बच्चों आज हम गिनती सीखेंगे | 2,211ms
+hindi_pcm_1.wav | यह क्या है                | यही क्या है           | 1,093ms
+hindi_pcm_2.wav | शाबाश बहुत अच्छा          | शाबाश बहुत अच्छा      | 1,602ms
+
+Mean: 1,635ms | Min: 1,093ms | Max: 2,211ms
+Requirement: ≤3,000ms | Status: PASS ✅
