@@ -4,17 +4,17 @@ import android.content.Context
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
+import androidx.sqlite.db.SupportSQLiteDatabase
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
-/**
- * VaaniSathi Room SQLite Database Singleton
- * Version 1: 50 Starter Phrases, Numeracy, Vocabulary, Lessons
- */
 @Database(
     entities = [
         FLNPhrase::class,
-        FLNLesson::class,
-        VocabularyWord::class,
-        NumeracyItem::class
+        FLNPhraseFts::class,
+        NumeracyEntry::class,
+        VocabularyEntry::class
     ],
     version = 1,
     exportSchema = false
@@ -24,20 +24,30 @@ abstract class VaaniSathiDatabase : RoomDatabase() {
     abstract fun phraseDao(): PhraseDao
 
     companion object {
-        @Volatile
-        private var INSTANCE: VaaniSathiDatabase? = null
+        @Volatile private var INSTANCE: VaaniSathiDatabase? = null
 
-        fun getDatabase(context: Context): VaaniSathiDatabase {
+        fun getInstance(context: Context): VaaniSathiDatabase {
             return INSTANCE ?: synchronized(this) {
-                val instance = Room.databaseBuilder(
+                Room.databaseBuilder(
                     context.applicationContext,
                     VaaniSathiDatabase::class.java,
                     "vaanisathi.db"
                 )
-                .fallbackToDestructiveMigration()
+                .addCallback(SeedCallback(context))
                 .build()
-                INSTANCE = instance
-                instance
+                .also { INSTANCE = it }
+            }
+        }
+    }
+
+    // Auto-seed the database on first launch
+    private class SeedCallback(private val context: Context) : RoomDatabase.Callback() {
+        override fun onCreate(db: SupportSQLiteDatabase) {
+            super.onCreate(db)
+            CoroutineScope(Dispatchers.IO).launch {
+                INSTANCE?.let { database ->
+                    DatabaseSeeder.seed(database.phraseDao())
+                }
             }
         }
     }

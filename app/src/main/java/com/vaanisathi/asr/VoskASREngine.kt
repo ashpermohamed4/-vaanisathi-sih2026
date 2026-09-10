@@ -1,187 +1,123 @@
 package com.vaanisathi.asr
 
 import android.content.Context
-import android.util.Log
-import kotlinx.coroutines.CoroutineScope
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.launch
-import org.json.JSONObject
+import kotlinx.coroutines.withContext
 import org.vosk.Model
 import org.vosk.Recognizer
-import org.vosk.android.RecognitionListener
-import org.vosk.android.SpeechService
 import org.vosk.android.StorageService
-import java.io.IOException
+import org.json.JSONObject
 
-/**
- * Production-grade offline Vosk ASR Engine wrapper for Android.
- * Loads the 42 MB vosk-model-small-hi-0.22 model and executes on-device speech recognition.
- */
-class VoskASREngine(private val context: Context) : RecognitionListener {
+class VoskASREngine(private val context: Context) {
 
-    companion object {
-        private const val TAG = "VoskASREngine"
-        private const val MODEL_NAME = "vosk-model-small-hi-0.22"
-        private const val SAMPLE_RATE = 16000.0f
+    // States the UI observes
+    sealed class ASRState {
+        object Idle : ASRState()
+        object Loading : ASRState()
+        object Listening : ASRState()
+        data class Result(val text: String, val latencyMs: Long) : ASRState()
+        data class Error(val message: String) : ASRState()
     }
 
+    private val _state = MutableStateFlow<ASRState>(ASRState.Idle)
+    val state: StateFlow<ASRState> = _state
+
     private var model: Model? = null
-    private var speechService: SpeechService? = null
-    private var startTimeMs: Long = 0L
+    private var recognizer: Recognizer? = null
+    private var audioRecord: AudioRecord? = null
+    private var isListening = false
 
-    private val _isModelLoaded = MutableStateFlow(false)
-    val isModelLoaded: StateFlow<Boolean> = _isModelLoaded
+    private val SAMPLE_RATE = 16000
+    private val BUFFER_SIZE = AudioRecord.getMinBufferSize(
+        SAMPLE_RATE,
+        AudioFormat.CHANNEL_IN_MONO,
+        AudioFormat.ENCODING_PCM_16BIT
+    )
 
-    private val _isListening = MutableStateFlow(false)
-    val isListening: StateFlow<Boolean> = _isListening
-
-    private val _recognizedText = MutableStateFlow("")
-    val recognizedText: StateFlow<String> = _recognizedText
-
-    private val _lastLatencyMs = MutableStateFlow(0L)
-    val lastLatencyMs: StateFlow<Long> = _lastLatencyMs
-
-    private val _engineStatus = MutableStateFlow("Initializing Vosk Engine...")
-    val engineStatus: StateFlow<String> = _engineStatus
-
-    /**
-     * Initializes the Vosk Kaldi model from app assets or internal storage.
-     */
-    fun initializeModel(onLoaded: ((Boolean) -> Unit)? = null) {
-        CoroutineScope(Dispatchers.IO).launch {
-            try {
-                _engineStatus.value = "Unpacking offline Hindi ASR model (42 MB)..."
-                StorageService.unpack(
-                    context,
-                    MODEL_NAME,
-                    "models",
-                    { loadedModel: Model? ->
-                        model = loadedModel
-                        _isModelLoaded.value = true
-                        _engineStatus.value = "Offline ASR Ready (Vosk Small Hindi)"
-                        Log.i(TAG, "Vosk Hindi model loaded successfully.")
-                        onLoaded?.invoke(true)
-                    },
-                    { exception: IOException ->
-                        _engineStatus.value = "Failed to load Vosk model: ${exception.message}"
-                        Log.e(TAG, "Failed to unpack model", exception)
-                        onLoaded?.invoke(false)
-                    }
-                )
-            } catch (e: Exception) {
-                _engineStatus.value = "Model load error: ${e.message}"
-                Log.e(TAG, "Error initializing Vosk model", e)
-                onLoaded?.invoke(false)
-            }
+    // Load the Vosk Hindi model from assets
+    // Model must be in: app/src/main/assets/vosk-model-small-hi-0.22/
+    suspend fun initialize() = withContext(Dispatchers.IO) {
+        try {
+            _state.value = ASRState.Loading
+            StorageService.unpack(
+                context,
+                "vosk-model-small-hi-0.22",  // folder in assets/
+                "model",
+                { model ->
+                    this@VoskASREngine.model = model
+                    _state.value = ASRState.Idle
+                },
+                { exception ->
+                    _state.value = ASRState.Error("Model load failed: ${exception.message}")
+                }
+            )
+        } catch (e: Exception) {
+            _state.value = ASRState.Error(e.message ?: "Unknown error")
         }
     }
 
-    /**
-     * Starts microphone audio capture and live speech decoding.
-     */
+    // Start recording and recognizing — called from TeacherScreen
     fun startListening() {
-        val loadedModel = model ?: run {
-            _engineStatus.value = "Model not loaded yet."
+        val currentModel = model ?: run {
+            _state.value = ASRState.Error("Model not loaded")
             return
         }
 
-        if (_isListening.value) return
+        recognizer = Recognizer(currentModel, SAMPLE_RATE.toFloat())
 
-        try {
-            val recognizer = Recognizer(loadedModel, SAMPLE_RATE)
-            recognizer.setWords(true)
+        audioRecord = AudioRecord(
+            MediaRecorder.AudioSource.MIC,
+            SAMPLE_RATE,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT,
+            BUFFER_SIZE * 2
+        )
 
-            speechService = SpeechService(recognizer, SAMPLE_RATE).apply {
-                startListening(this@VoskASREngine)
+        isListening = true
+        _state.value = ASRState.Listening
+
+        val startTime = System.currentTimeMillis()
+        val buffer = ShortArray(BUFFER_SIZE)
+        audioRecord?.startRecording()
+
+        Thread {
+            while (isListening) {
+                val read = audioRecord?.read(buffer, 0, buffer.size) ?: 0
+                if (read > 0) {
+                    val bytes = ByteArray(read * 2)
+                    for (i in 0 until read) {
+                        bytes[i * 2] = (buffer[i].toInt() and 0xFF).toByte()
+                        bytes[i * 2 + 1] = (buffer[i].toInt() shr 8).toByte()
+                    }
+                    if (recognizer?.acceptWaveForm(bytes, bytes.size) == true) {
+                        val result = recognizer?.result ?: continue
+                        val text = JSONObject(result).optString("text", "")
+                        if (text.isNotBlank()) {
+                            val latency = System.currentTimeMillis() - startTime
+                            _state.value = ASRState.Result(text, latency)
+                            stopListening()
+                        }
+                    }
+                }
             }
-            startTimeMs = System.currentTimeMillis()
-            _isListening.value = true
-            _recognizedText.value = ""
-            _engineStatus.value = "Listening for Hindi speech..."
-            Log.i(TAG, "SpeechService started listening.")
-        } catch (e: IOException) {
-            _engineStatus.value = "Microphone error: ${e.message}"
-            Log.e(TAG, "Error starting SpeechService", e)
-        }
+        }.start()
     }
 
-    /**
-     * Stops microphone audio capture and finalizes recognition.
-     */
     fun stopListening() {
-        speechService?.let {
-            it.stop()
-            it.shutdown()
-            speechService = null
-        }
-        _isListening.value = false
-        _engineStatus.value = "ASR Idle (Model Ready)"
-        Log.i(TAG, "SpeechService stopped.")
+        isListening = false
+        audioRecord?.stop()
+        audioRecord?.release()
+        audioRecord = null
     }
 
-    // ----------------------------------------------------
-    // Vosk RecognitionListener Callbacks
-    // ----------------------------------------------------
-    override fun onPartialResult(hypothesis: String?) {
-        hypothesis?.let {
-            try {
-                val json = JSONObject(it)
-                val partial = json.optString("partial", "")
-                if (partial.isNotBlank()) {
-                    _recognizedText.value = partial
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error parsing partial result", e)
-            }
-        }
-    }
-
-    override fun onResult(hypothesis: String?) {
-        hypothesis?.let {
-            try {
-                val json = JSONObject(it)
-                val text = json.optString("text", "")
-                if (text.isNotBlank()) {
-                    val latency = System.currentTimeMillis() - startTimeMs
-                    _lastLatencyMs.value = latency
-                    _recognizedText.value = text
-                    Log.i(TAG, "Recognized: '$text' in ${latency}ms")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error parsing result", e)
-            }
-        }
-    }
-
-    override fun onFinalResult(hypothesis: String?) {
-        hypothesis?.let {
-            try {
-                val json = JSONObject(it)
-                val text = json.optString("text", "")
-                if (text.isNotBlank()) {
-                    val latency = System.currentTimeMillis() - startTimeMs
-                    _lastLatencyMs.value = latency
-                    _recognizedText.value = text
-                    Log.i(TAG, "Final Recognized: '$text' in ${latency}ms")
-                }
-            } catch (e: Exception) {
-                Log.e(TAG, "Error parsing final result", e)
-            }
-        }
-        _isListening.value = false
-    }
-
-    override fun onError(exception: java.lang.Exception?) {
-        _engineStatus.value = "ASR Error: ${exception?.message}"
-        _isListening.value = false
-        Log.e(TAG, "ASR Recognition error", exception)
-    }
-
-    override fun onTimeout() {
-        _isListening.value = false
-        _engineStatus.value = "ASR Timeout (No speech detected)"
-        Log.w(TAG, "ASR Timeout reached.")
+    fun release() {
+        stopListening()
+        recognizer?.close()
+        model?.close()
     }
 }
