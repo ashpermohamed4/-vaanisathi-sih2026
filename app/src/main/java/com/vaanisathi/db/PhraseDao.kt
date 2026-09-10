@@ -4,68 +4,55 @@ import androidx.room.Dao
 import androidx.room.Insert
 import androidx.room.OnConflictStrategy
 import androidx.room.Query
-import kotlinx.coroutines.flow.Flow
 
-/**
- * Data Access Object (DAO) for high-speed offline query operations (<5ms).
- */
 @Dao
 interface PhraseDao {
 
-    // ----------------------------------------------------
-    // Phrase Lookups (Tier 1 Matcher)
-    // ----------------------------------------------------
-    @Query("SELECT * FROM fln_phrases WHERE hindi_text = :query LIMIT 1")
-    suspend fun findExactMatch(query: String): FLNPhrase?
+    // ── TIER 1 CORE: FTS5 fuzzy search ──────────────────────────────
+    // This is your <5ms lookup — the key to ≤3sec E2E claim
+    @Query("""
+        SELECT fln_phrases.* FROM fln_phrases 
+        INNER JOIN fln_phrases_fts ON fln_phrases.rowid = fln_phrases_fts.rowid
+        WHERE fln_phrases_fts MATCH :query
+        ORDER BY fln_phrases.gradeLevel ASC
+        LIMIT 5
+    """)
+    suspend fun searchPhrases(query: String): List<FLNPhrase>
 
-    @Query("SELECT * FROM fln_phrases WHERE hindi_text LIKE '%' || :query || '%' LIMIT 5")
-    suspend fun findFuzzyMatches(query: String): List<FLNPhrase>
+    // Exact match — fastest path (~1ms)
+    @Query("SELECT * FROM fln_phrases WHERE hindiText = :exact LIMIT 1")
+    suspend fun exactMatch(exact: String): FLNPhrase?
 
-    @Query("SELECT * FROM fln_phrases WHERE phrase_code = :code LIMIT 1")
-    suspend fun getByPhraseCode(code: String): FLNPhrase?
+    // Get all phrases by domain
+    @Query("SELECT * FROM fln_phrases WHERE domain = :domain ORDER BY phraseCode")
+    suspend fun getPhrasesByDomain(domain: String): List<FLNPhrase>
 
-    @Query("SELECT * FROM fln_phrases WHERE domain = :domain ORDER BY id ASC")
-    fun getPhrasesByDomain(domain: String): Flow<List<FLNPhrase>>
+    // Get all classroom management phrases
+    @Query("SELECT * FROM fln_phrases WHERE context = 'classroom_mgmt'")
+    suspend fun getClassroomPhrases(): List<FLNPhrase>
 
-    @Query("SELECT * FROM fln_phrases ORDER BY id ASC")
-    fun getAllPhrases(): Flow<List<FLNPhrase>>
+    // Reverse lookup — student taps → teacher gets Hindi
+    @Query("SELECT * FROM fln_phrases WHERE santhaliOlChiki = :santhali LIMIT 1")
+    suspend fun reverseLookup(santhali: String): FLNPhrase?
 
-    @Query("SELECT COUNT(*) FROM fln_phrases")
-    suspend fun getPhraseCount(): Int
+    // ── INSERT ───────────────────────────────────────────────────────
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertPhrase(phrase: FLNPhrase)
 
-    // ----------------------------------------------------
-    // Numeracy & Vocabulary
-    // ----------------------------------------------------
-    @Query("SELECT * FROM numeracy ORDER BY number ASC")
-    fun getAllNumeracy(): Flow<List<NumeracyItem>>
-
-    @Query("SELECT * FROM vocabulary WHERE category = :category ORDER BY id ASC")
-    fun getVocabularyByCategory(category: String): Flow<List<VocabularyWord>>
-
-    @Query("SELECT * FROM vocabulary ORDER BY category, id ASC")
-    fun getAllVocabulary(): Flow<List<VocabularyWord>>
-
-    // ----------------------------------------------------
-    // Lessons
-    // ----------------------------------------------------
-    @Query("SELECT * FROM fln_lessons WHERE grade = :grade ORDER BY id ASC")
-    fun getLessonsByGrade(grade: Int): Flow<List<FLNLesson>>
-
-    @Query("SELECT * FROM fln_lessons WHERE lesson_code = :lessonCode LIMIT 1")
-    suspend fun getLessonByCode(lessonCode: String): FLNLesson?
-
-    // ----------------------------------------------------
-    // Seed Insertion
-    // ----------------------------------------------------
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertPhrases(phrases: List<FLNPhrase>)
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertNumeracy(items: List<NumeracyItem>)
+    // ── NUMERACY ─────────────────────────────────────────────────────
+    @Query("SELECT * FROM numeracy ORDER BY number")
+    suspend fun getAllNumbers(): List<NumeracyEntry>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertVocabulary(words: List<VocabularyWord>)
+    suspend fun insertNumber(entry: NumeracyEntry)
+
+    // ── VOCABULARY ───────────────────────────────────────────────────
+    @Query("SELECT * FROM vocabulary WHERE category = :category")
+    suspend fun getVocabByCategory(category: String): List<VocabularyEntry>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertLessons(lessons: List<FLNLesson>)
+    suspend fun insertVocab(entry: VocabularyEntry)
 }

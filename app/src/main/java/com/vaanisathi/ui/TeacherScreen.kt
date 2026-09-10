@@ -1,227 +1,231 @@
 package com.vaanisathi.ui
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Mic
-import androidx.compose.material.icons.filled.MicOff
-import androidx.compose.material.icons.filled.VolumeUp
+import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.vaanisathi.asr.VoskASREngine
 import com.vaanisathi.db.FLNPhrase
+import com.vaanisathi.db.VaaniSathiDatabase
+import com.vaanisathi.tts.AudioPlayer
+import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+// Brand colors — VaaniSathi
+val NavyBlue = Color(0xFF0D1B6E)
+val SaffronOrange = Color(0xFFEA580C)
+val ForestGreen = Color(0xFF15803D)
+val LightBlue = Color(0xFFDBEAFE)
+
 @Composable
-fun TeacherScreen(
-    isListening: Boolean,
-    recognizedText: String,
-    matchedPhrase: FLNPhrase?,
-    tier2Translation: String?,
-    latencyMs: Long,
-    engineStatus: String,
-    onToggleListen: () -> Unit,
-    onPlayAudio: (String?) -> Unit
-) {
+fun TeacherScreen(onStudentMode: () -> Unit) {
+    val context = LocalContext.current
+    val scope = rememberCoroutineScope()
+    val db = remember { VaaniSathiDatabase.getInstance(context) }
+    val asr = remember { VoskASREngine(context) }
+    val player = remember { AudioPlayer(context) }
+
+    val asrState by asr.state.collectAsState()
+
+    var recognizedHindi by remember { mutableStateOf("") }
+    var matchedPhrase by remember { mutableStateOf<FLNPhrase?>(null) }
+    var latencyMs by remember { mutableStateOf(0L) }
+    var isListening by remember { mutableStateOf(false) }
+    var statusMsg by remember { mutableStateOf("Ready — tap mic to speak Hindi") }
+
+    // Initialize Vosk on first launch
+    LaunchedEffect(Unit) {
+        statusMsg = "Loading Vosk Hindi model (42 MB)..."
+        asr.initialize()
+    }
+
+    // React to ASR state changes
+    LaunchedEffect(asrState) {
+        when (val s = asrState) {
+            is VoskASREngine.ASRState.Idle -> {
+                statusMsg = "Ready — tap mic to speak Hindi"
+                isListening = false
+            }
+            is VoskASREngine.ASRState.Loading ->
+                statusMsg = "Loading Vosk model..."
+            is VoskASREngine.ASRState.Listening ->
+                statusMsg = "Listening... speak in Hindi"
+            is VoskASREngine.ASRState.Result -> {
+                recognizedHindi = s.text
+                latencyMs = s.latencyMs
+                isListening = false
+                // Tier 1: search DB
+                scope.launch {
+                    val exact = db.phraseDao().exactMatch(s.text)
+                    val found = exact ?: db.phraseDao()
+                        .searchPhrases(s.text).firstOrNull()
+                    matchedPhrase = found
+                    if (found != null) {
+                        statusMsg = "✅ Match found — playing Santhali audio"
+                        player.playFromAssets(found.audioFilename)
+                    } else {
+                        statusMsg = "No match — try Extended Mode (Tier 2)"
+                    }
+                }
+            }
+            is VoskASREngine.ASRState.Error ->
+                statusMsg = "Error: ${s.message}"
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose { asr.release(); player.release() }
+    }
+
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(Color(0xFFF8F9FA))
-            .padding(16.dp),
-        horizontalAlignment = Alignment.CenterHorizontally
+            .background(Color(0xFFF8FAFF))
     ) {
-        // Status & Offline Badge
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = Color(0xFFE8F5E9)
-            ) {
-                Text(
-                    text = "● 100% OFFLINE (0 API Calls)",
-                    color = Color(0xFF2E7D32),
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Bold,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                )
-            }
-
-            if (latencyMs > 0) {
-                Surface(
-                    shape = RoundedCornerShape(12.dp),
-                    color = if (latencyMs <= 3000) Color(0xFFE3F2FD) else Color(0xFFFFEBEE)
-                ) {
-                    Text(
-                        text = "⚡ Latency: ${latencyMs}ms",
-                        color = if (latencyMs <= 3000) Color(0xFF1565C0) else Color(0xFFC62828),
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                    )
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Engine Status Banner
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            colors = CardDefaults.cardColors(containerColor = Color.White),
-            shape = RoundedCornerShape(12.dp),
-            elevation = CardDefaults.cardElevation(2.dp)
-        ) {
-            Text(
-                text = engineStatus,
-                color = Color(0xFF555555),
-                fontSize = 13.sp,
-                modifier = Modifier.padding(12.dp)
-            )
-        }
-
-        Spacer(modifier = Modifier.height(24.dp))
-
-        // Microphone Action Button
+        // ── TOP BAR ────────────────────────────────────────────────
         Box(
-            contentAlignment = Alignment.Center,
-            modifier = Modifier.size(140.dp)
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(NavyBlue)
+                .padding(16.dp)
         ) {
-            IconButton(
-                onClick = onToggleListen,
+            Column {
+                Text("VaaniSathi", color = Color.White,
+                    fontSize = 22.sp, fontWeight = FontWeight.Bold)
+                Text("वाणीसाथी — PALASH Teacher Mode",
+                    color = Color.White.copy(alpha = 0.8f), fontSize = 13.sp)
+            }
+            TextButton(
+                onClick = onStudentMode,
+                modifier = Modifier.align(Alignment.CenterEnd)
+            ) {
+                Text("Student Mode →", color = Color(0xFFFCD34D))
+            }
+        }
+
+        // ── LATENCY BADGE ──────────────────────────────────────────
+        if (latencyMs > 0) {
+            Row(
                 modifier = Modifier
-                    .size(110.dp)
-                    .clip(CircleShape)
-                    .background(if (isListening) Color(0xFFD32F2F) else Color(0xFF1976D2))
+                    .fillMaxWidth()
+                    .background(if (latencyMs < 3000) ForestGreen else SaffronOrange)
+                    .padding(horizontal = 16.dp, vertical = 6.dp),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Text("⏱ Tier 1 E2E: ${latencyMs}ms",
+                    color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                Text(if (latencyMs < 3000) "✅ PASS" else "⚠ SLOW",
+                    color = Color.White, fontSize = 13.sp)
+            }
+        }
+
+        Column(
+            modifier = Modifier.fillMaxSize().padding(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+
+            // ── MIC BUTTON ─────────────────────────────────────────
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(statusMsg, fontSize = 14.sp,
+                color = Color(0xFF1E293B), textAlign = TextAlign.Center)
+            Spacer(modifier = Modifier.height(20.dp))
+
+            FloatingActionButton(
+                onClick = {
+                    if (isListening) {
+                        asr.stopListening()
+                        isListening = false
+                    } else {
+                        isListening = true
+                        asr.startListening()
+                    }
+                },
+                containerColor = if (isListening) SaffronOrange else NavyBlue,
+                shape = CircleShape,
+                modifier = Modifier.size(90.dp)
             ) {
                 Icon(
-                    imageVector = if (isListening) Icons.Default.MicOff else Icons.Default.Mic,
-                    contentDescription = "Microphone",
+                    if (isListening) Icons.Default.Stop else Icons.Default.Mic,
+                    contentDescription = "Mic",
                     tint = Color.White,
-                    modifier = Modifier.size(54.dp)
+                    modifier = Modifier.size(40.dp)
                 )
             }
-        }
 
-        Text(
-            text = if (isListening) "Listening to Teacher (Hindi)..." else "Tap to Speak (Hindi)",
-            fontWeight = FontWeight.SemiBold,
-            fontSize = 16.sp,
-            color = if (isListening) Color(0xFFD32F2F) else Color(0xFF333333)
-        )
+            Text(
+                if (isListening) "Recording..." else "Tap to Speak Hindi",
+                fontSize = 12.sp, color = Color.Gray,
+                modifier = Modifier.padding(top = 8.dp)
+            )
 
-        Spacer(modifier = Modifier.height(24.dp))
+            Spacer(modifier = Modifier.height(20.dp))
 
-        // Recognized Hindi Text Display
-        Card(
-            modifier = Modifier.fillMaxWidth(),
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = Color(0xFFEDE7F6))
-        ) {
-            Column(modifier = Modifier.padding(16.dp)) {
-                Text(
-                    text = "TEACHER SPEECH (HINDI)",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color(0xFF5E35B1)
-                )
-                Spacer(modifier = Modifier.height(6.dp))
-                Text(
-                    text = if (recognizedText.isNotBlank()) recognizedText else "बोलना शुरू करने के लिए माइक दबाएं...",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Medium,
-                    color = Color(0xFF212121)
-                )
-            }
-        }
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Result Card (Tier 1 Match or Tier 2 Translation)
-        AnimatedVisibility(visible = matchedPhrase != null || tier2Translation != null) {
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
-                elevation = CardDefaults.cardElevation(4.dp)
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
+            // ── ASR RESULT ─────────────────────────────────────────
+            if (recognizedHindi.isNotBlank()) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(containerColor = LightBlue),
+                    shape = RoundedCornerShape(12.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Surface(
-                            shape = RoundedCornerShape(8.dp),
-                            color = if (matchedPhrase != null) Color(0xFF2E7D32) else Color(0xFFE65100)
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Text("Recognised Hindi:", fontSize = 11.sp,
+                            color = Color(0xFF6B7280))
+                        Text(recognizedHindi, fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold, color = NavyBlue)
+                    }
+                }
+                Spacer(modifier = Modifier.height(12.dp))
+            }
+
+            // ── MATCHED PHRASE CARD ────────────────────────────────
+            matchedPhrase?.let { phrase ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    colors = CardDefaults.cardColors(
+                        containerColor = Color(0xFFDCFCE7)),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(16.dp)) {
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Text(
-                                text = if (matchedPhrase != null) "TIER 1 MATCH (<5ms)" else "TIER 2 NMT EXTENDED",
-                                color = Color.White,
-                                fontSize = 10.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
-                            )
+                            Text("✅ Santhali Translation",
+                                fontSize = 11.sp, color = ForestGreen,
+                                fontWeight = FontWeight.Bold)
+                            Text(phrase.nipunCode,
+                                fontSize = 10.sp, color = Color.Gray)
                         }
-
-                        if (matchedPhrase?.nipunCode != null) {
-                            Text(
-                                text = "NIPUN: ${matchedPhrase.nipunCode}",
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF1B5E20)
-                            )
+                        Spacer(Modifier.height(8.dp))
+                        // Ol Chiki Unicode
+                        Text(phrase.santhaliOlChiki, fontSize = 32.sp,
+                            color = NavyBlue, fontWeight = FontWeight.Bold)
+                        Text(phrase.santhaliRoman, fontSize = 14.sp,
+                            color = Color(0xFF6B7280))
+                        Spacer(Modifier.height(8.dp))
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            AssistChip(onClick = {
+                                phrase.audioFilename.let {
+                                    player.playFromAssets(it)
+                                }
+                            }, label = { Text("🔊 Play Audio") })
+                            AssistChip(onClick = {},
+                                label = { Text(phrase.context) })
                         }
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Santhali Ol Chiki Display
-                    Text(
-                        text = matchedPhrase?.santhaliOlChiki ?: tier2Translation ?: "",
-                        fontSize = 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color(0xFF1B5E20),
-                        textAlign = TextAlign.Center
-                    )
-
-                    // Santhali Romanized Fallback
-                    if (matchedPhrase?.santhaliRoman != null) {
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "(${matchedPhrase.santhaliRoman})",
-                            fontSize = 16.sp,
-                            color = Color(0xFF388E3C),
-                            textAlign = TextAlign.Center
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Audio Playback Button
-                    Button(
-                        onClick = { onPlayAudio(matchedPhrase?.audioFilename) },
-                        colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2E7D32)),
-                        shape = RoundedCornerShape(24.dp)
-                    ) {
-                        Icon(Icons.Default.VolumeUp, contentDescription = "Play Audio", tint = Color.White)
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text("Play Native Santhali Audio", color = Color.White)
                     }
                 }
             }

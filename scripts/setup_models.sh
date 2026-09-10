@@ -1,44 +1,25 @@
-#!/usr/bin/env bash
-# ==============================================================================
-# VaaniSathi (वाणीसाथी) — Offline Model Setup Script
-# Downloads and unpacks the 42 MB Vosk Small Hindi model for offline edge ASR.
-# ==============================================================================
+#!/bin/bash
+# VaaniSathi — Download Vosk Hindi Model
+# Run once before building the Android app
 
-set -e
+MODEL_URL="https://alphacephei.com/vosk/models/vosk-model-small-hi-0.22.zip"
+ASSETS_DIR="app/src/main/assets"
+MODEL_DIR="$ASSETS_DIR/vosk-model-small-hi-0.22"
 
-MODEL_NAME="vosk-model-small-hi-0.22"
-MODEL_ZIP="${MODEL_NAME}.zip"
-MODEL_URL="https://alphacephei.com/vosk/models/${MODEL_ZIP}"
-TARGET_DIR="app/src/main/assets/models"
+echo "VaaniSathi Model Setup"
+echo "Downloading Vosk Small Hindi (42 MB)..."
 
-echo "=========================================================="
-echo " VaaniSathi: Setting up Offline Vosk Hindi ASR Model"
-echo "=========================================================="
+mkdir -p "$ASSETS_DIR"
 
-mkdir -p "${TARGET_DIR}"
-
-if [ -d "${TARGET_DIR}/${MODEL_NAME}" ]; then
-    echo "✅ Model already installed at ${TARGET_DIR}/${MODEL_NAME}"
+if [ -d "$MODEL_DIR" ]; then
+    echo "Model already exists at $MODEL_DIR"
     exit 0
 fi
 
-echo "📥 Downloading Vosk Small Hindi Model (42 MB)..."
-if command -v curl >/dev/null 2>&1; then
-    curl -L -O "${MODEL_URL}"
-elif command -v wget >/dev/null 2>&1; then
-    wget "${MODEL_URL}"
-else
-    echo "❌ Error: Neither curl nor wget found. Please download manually from ${MODEL_URL}"
-    exit 1
-fi
+curl -L "$MODEL_URL" -o vosk_hindi_model.zip
+echo "Extracting to $ASSETS_DIR..."
+unzip -q vosk_hindi_model.zip -d "$ASSETS_DIR"
+rm vosk_hindi_model.zip
 
-echo "📦 Extracting model archive..."
-if command -v unzip >/dev/null 2>&1; then
-    unzip -q "${MODEL_ZIP}" -d "${TARGET_DIR}/"
-    rm "${MODEL_ZIP}"
-else
-    echo "⚠️ Warning: 'unzip' command not found. Please extract ${MODEL_ZIP} into ${TARGET_DIR}/"
-fi
-
-echo "✅ Model setup completed successfully!"
-echo "Model location: ${TARGET_DIR}/${MODEL_NAME}"
+echo "Model ready at: $MODEL_DIR"
+echo "Build the app now: ./gradlew assembleDebug"
