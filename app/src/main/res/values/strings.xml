@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">VaaniSathi</string>
+    <string name="teacher_mode">PALASH Teacher Mode</string>
+    <string name="student_mode">Student Mode</string>
+</resources>
