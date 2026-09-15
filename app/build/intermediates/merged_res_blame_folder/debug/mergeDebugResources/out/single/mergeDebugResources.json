@@ -1,0 +1,14 @@
+[
+    {
+        "merged": "com.vaanisathi.app-debug-49:/drawable_ic_vaanisathi_logo.png.flat",
+        "source": "com.vaanisathi.app-main-51:/drawable/ic_vaanisathi_logo.png"
+    },
+    {
+        "merged": "com.vaanisathi.app-debug-49:/xml_backup_rules.xml.flat",
+        "source": "com.vaanisathi.app-main-51:/xml/backup_rules.xml"
+    },
+    {
+        "merged": "com.vaanisathi.app-debug-49:/xml_data_extraction_rules.xml.flat",
+        "source": "com.vaanisathi.app-main-51:/xml/data_extraction_rules.xml"
+    }
+]
