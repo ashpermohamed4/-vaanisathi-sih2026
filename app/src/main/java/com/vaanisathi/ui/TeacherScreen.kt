@@ -336,12 +336,19 @@ fun TeacherScreen(onStudentMode: () -> Unit) {
                         }
                         Spacer(Modifier.height(10.dp))
                         val sec = "%.1f".format(latencyMs/1000f)
+                        val isUnder3s = latencyMs < 3000
                         SuggestionChip(onClick = {},
-                            label = { Text("⏱ ${sec}s  ✅ Tier 1 Offline <3s",
-                                fontSize = 12.sp, color = ForestGreen) },
+                            label = { Text(
+                                if (isUnder3s) "⏱ ${sec}s  ✅ Tier 1 Offline <3s"
+                                else "⏱ ${sec}s  ⚠️ >3s (phrase too long)",
+                                fontSize = 12.sp,
+                                color = if (isUnder3s) ForestGreen else Color(0xFFEA580C)
+                            )},
                             shape = RoundedCornerShape(10.dp),
                             colors = SuggestionChipDefaults.suggestionChipColors(
-                                Color(0xFFDCFCE7)), border = null)
+                                containerColor = if (isUnder3s) Color(0xFFDCFCE7) 
+                                                 else Color(0xFFFFF7ED)
+                            ), border = null)
                     }
                 }
             }

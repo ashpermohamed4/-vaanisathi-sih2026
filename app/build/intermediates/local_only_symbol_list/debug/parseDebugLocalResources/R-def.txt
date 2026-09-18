@@ -1,8 +1,0 @@
-R_DEF: Internal format may change without notice
-local
-drawable ic_vaanisathi_logo
-string app_name
-string student_mode
-string teacher_mode
-xml backup_rules
-xml data_extraction_rules
