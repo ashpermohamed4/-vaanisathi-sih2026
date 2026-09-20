@@ -46,7 +46,7 @@ fun countCommonChars(a: String, b: String): Int {
 }
 
 @Composable
-fun TeacherScreen(onStudentMode: () -> Unit) {
+fun TeacherScreen(onStudentMode: () -> Unit, onWorksheet: () -> Unit) {
     val context = LocalContext.current
     val scope   = rememberCoroutineScope()
     val db      = remember { VaaniSathiDatabase.getInstance(context) }
@@ -219,6 +219,30 @@ fun TeacherScreen(onStudentMode: () -> Unit) {
                     }
             }
 
+            Spacer(Modifier.height(12.dp))
+
+            // WORKSHEET GENERATOR PROMPT CARD
+            Card(
+                onClick = onWorksheet,
+                modifier = Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFEF3C7)),
+                shape = RoundedCornerShape(16.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(14.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text("📄 NIPUN Worksheet Generator", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = Color(0xFF92400E))
+                        Text("Export offline printable PDF tables", fontSize = 11.sp, color = Color(0xFF78350F))
+                    }
+                    Button(onClick = onWorksheet, colors = ButtonDefaults.buttonColors(containerColor = SaffronOrange)) {
+                        Text("Open →", fontSize = 12.sp)
+                    }
+                }
+            }
+
             Spacer(Modifier.height(24.dp))
 
             // MIC BUTTON
@@ -270,6 +294,98 @@ fun TeacherScreen(onStudentMode: () -> Unit) {
                 modifier = Modifier.padding(top = 4.dp))
 
             Spacer(Modifier.height(20.dp))
+
+            // TEXT INPUT ALTERNATIVE
+            var textInput by remember { mutableStateOf("") }
+            
+            Card(
+                Modifier.fillMaxWidth(),
+                colors = CardDefaults.cardColors(Color.White),
+                shape = RoundedCornerShape(16.dp),
+                elevation = CardDefaults.cardElevation(2.dp)
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text("OR type Hindi text:",
+                        fontSize = 12.sp, color = Color(0xFF6B7280),
+                        fontWeight = FontWeight.Medium)
+                    Spacer(Modifier.height(8.dp))
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = textInput,
+                            onValueChange = { textInput = it },
+                            placeholder = { Text("बैठो, सुनो, देखो...",
+                                color = Color(0xFF9CA3AF)) },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            singleLine = true,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = NavyBlue,
+                                unfocusedBorderColor = Color(0xFFCBD5E1))
+                        )
+                        Button(
+                            onClick = {
+                                if (textInput.isNotBlank()) {
+                                    recognizedHindi = textInput
+                                    textInput = ""
+                                    tier2Result = ""
+                                    tier2Error = false
+                                    scope.launch {
+                                        var found = db.phraseDao()
+                                            .exactMatch(recognizedHindi)
+                                        if (found == null)
+                                            found = db.phraseDao()
+                                                .searchPhrases(recognizedHindi)
+                                                .firstOrNull()
+                                        if (found == null) {
+                                            for (w in recognizedHindi.split(" ")) {
+                                                if (w.length >= 2) {
+                                                    found = db.phraseDao()
+                                                        .searchPhrases(w)
+                                                        .firstOrNull()
+                                                    if (found != null) break
+                                                }
+                                            }
+                                        }
+                                        if (found == null) {
+                                            val all = db.phraseDao().getAllPhrases()
+                                            val best = all.maxByOrNull { p ->
+                                                countCommonChars(recognizedHindi, p.hindiText)
+                                            }
+                                            if (best != null &&
+                                                countCommonChars(recognizedHindi, best.hindiText) >= 2)
+                                                found = best
+                                        }
+                                        matchedPhrase = found
+                                        if (found != null) {
+                                            player.playFromAssets(
+                                                found.audioFilename,
+                                                found.santhaliRoman)
+                                        } else {
+                                            tier2Loading = true
+                                            val r = BhashiniTranslator
+                                                .translateHindiToSanthali(recognizedHindi)
+                                            tier2Loading = false
+                                            if (r.success) {
+                                                tier2Result = r.santhaliText
+                                                player.speakNow(r.santhaliText)
+                                            } else tier2Error = true
+                                        }
+                                    }
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(NavyBlue),
+                            shape = RoundedCornerShape(12.dp),
+                            contentPadding = PaddingValues(12.dp, 14.dp)
+                        ) { Text("Translate", fontSize = 13.sp,
+                            fontWeight = FontWeight.Bold, color = Color.White) }
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
 
             // RECOGNIZED HINDI
             if (recognizedHindi.isNotBlank()) {

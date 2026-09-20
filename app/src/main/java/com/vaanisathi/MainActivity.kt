@@ -13,6 +13,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.vaanisathi.ui.PhraseCardScreen
 import com.vaanisathi.ui.TeacherScreen
+import com.vaanisathi.ui.WorksheetScreen
 
 class MainActivity : ComponentActivity() {
 
@@ -35,11 +36,17 @@ class MainActivity : ComponentActivity() {
                 NavHost(navController, startDestination = "teacher") {
                     composable("teacher") {
                         TeacherScreen(
-                            onStudentMode = { navController.navigate("phrases") }
+                            onStudentMode = { navController.navigate("phrases") },
+                            onWorksheet = { navController.navigate("worksheet") }
                         )
                     }
                     composable("phrases") {
                         PhraseCardScreen(
+                            onBack = { navController.popBackStack() }
+                        )
+                    }
+                    composable("worksheet") {
+                        WorksheetScreen(
                             onBack = { navController.popBackStack() }
                         )
                     }

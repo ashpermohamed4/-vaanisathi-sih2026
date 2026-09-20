@@ -137,6 +137,47 @@ fun PhraseCardScreen(onBack: () -> Unit) {
                 }
             }
 
+            // SANTHALI TEXT SEARCH
+            var searchText by remember { mutableStateOf("") }
+            Card(
+                Modifier.fillMaxWidth().padding(horizontal = 12.dp),
+                colors = CardDefaults.cardColors(Color.White),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Row(
+                    Modifier.padding(12.dp).fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = searchText,
+                        onValueChange = { searchText = it },
+                        placeholder = { Text("Search Hindi or Santhali...",
+                            color = Color(0xFF9CA3AF), fontSize = 13.sp) },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(10.dp),
+                        singleLine = true
+                    )
+                    Button(
+                        onClick = {
+                            val match = phrases.find { p ->
+                                p.hindiText.contains(searchText, true) ||
+                                p.santhaliRoman.contains(searchText, true)
+                            }
+                            if (match != null) {
+                                selectedPhrase = match
+                                player.speakBothDirections(
+                                    match.santhaliRoman, match.hindiText, 2000)
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(NavyBlue),
+                        shape = RoundedCornerShape(10.dp)
+                    ) { Text("Find", fontWeight = FontWeight.Bold,
+                        color = Color.White) }
+                }
+            }
+            Spacer(Modifier.height(4.dp))
+
             // SELECTED PHRASE — shows after card tap
             selectedPhrase?.let { phrase ->
                 Card(
