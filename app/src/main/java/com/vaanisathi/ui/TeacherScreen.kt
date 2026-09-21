@@ -10,6 +10,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.HourglassEmpty
 import androidx.compose.material.icons.filled.Mic
 import androidx.compose.material.icons.filled.Stop
 import androidx.compose.material.icons.filled.VolumeUp
@@ -31,6 +33,7 @@ import com.vaanisathi.db.FLNPhrase
 import com.vaanisathi.db.VaaniSathiDatabase
 import com.vaanisathi.nmt.BhashiniTranslator
 import com.vaanisathi.tts.AudioPlayer
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -63,6 +66,14 @@ fun TeacherScreen(onStudentMode: () -> Unit, onWorksheet: () -> Unit) {
     var tier2Loading    by remember { mutableStateOf(false) }
     var tier2Error      by remember { mutableStateOf(false) }
 
+    var micPhase by remember { 
+        mutableStateOf("READY") 
+        // READY → RECORDING → TRANSLATING → RESULT
+    }
+    var recordingSeconds by remember { mutableStateOf(0) }
+    var timerJob by remember { mutableStateOf<Job?>(null) }
+    var recordStartTime by remember { mutableStateOf(0L) }
+
     LaunchedEffect(Unit) { asr.initialize() }
 
     LaunchedEffect(asrState) {
@@ -72,7 +83,8 @@ fun TeacherScreen(onStudentMode: () -> Unit, onWorksheet: () -> Unit) {
             is VoskASREngine.ASRState.Listening -> isListening = true
             is VoskASREngine.ASRState.Result -> {
                 recognizedHindi = s.text
-                latencyMs       = s.latencyMs
+                latencyMs       = System.currentTimeMillis() - recordStartTime
+                micPhase        = "RESULT"
                 isListening     = false
                 tier2Result     = ""
                 tier2Error      = false
@@ -245,39 +257,89 @@ fun TeacherScreen(onStudentMode: () -> Unit, onWorksheet: () -> Unit) {
 
             Spacer(Modifier.height(24.dp))
 
-            // MIC BUTTON
-            Box(Modifier.size(150.dp), contentAlignment = Alignment.Center) {
-                if (isListening) {
+            // MIC BUTTON & STATE MACHINE
+            Box(Modifier.size(170.dp), contentAlignment = Alignment.Center) {
+                // Pulse ring when recording
+                if (micPhase == "RECORDING") {
                     Canvas(Modifier.fillMaxSize()) {
                         drawCircle(Color.Red.copy(alpha = pAlpha),
                             (size.minDimension/2f)*pScale,
                             style = Stroke(4.dp.toPx()))
-                        drawCircle(Color.Red.copy(alpha = pAlpha*0.5f),
-                            (size.minDimension/2f)*(pScale*0.85f),
-                            style = Stroke(2.dp.toPx()))
                     }
                 }
                 FloatingActionButton(
                     onClick = {
-                        if (isListening) {
-                            asr.stopListening(); isListening = false
-                        } else {
-                            recognizedHindi = ""; matchedPhrase = null
-                            tier2Result = ""; tier2Error = false
-                            isListening = true; asr.startListening()
+                        when (micPhase) {
+                            "READY" -> {
+                                // START recording
+                                recognizedHindi = ""
+                                matchedPhrase = null
+                                tier2Result = ""
+                                tier2Error = false
+                                recordingSeconds = 0
+                                recordStartTime = System.currentTimeMillis()
+                                micPhase = "RECORDING"
+                                isListening = true
+                                asr.startListening()
+                                // Start timer
+                                timerJob = scope.launch {
+                                    while (micPhase == "RECORDING") {
+                                        delay(1000)
+                                        recordingSeconds++
+                                    }
+                                }
+                            }
+                            "RECORDING" -> {
+                                // STOP and translate
+                                timerJob?.cancel()
+                                micPhase = "TRANSLATING"
+                                isListening = false
+                                asr.stopListening()
+                                // latencyMs will be set when ASRState.Result fires
+                            }
+                            "RESULT", "TRANSLATING" -> {
+                                // Reset for next phrase
+                                micPhase = "READY"
+                                recordingSeconds = 0
+                                recognizedHindi = ""
+                                matchedPhrase = null
+                                tier2Result = ""
+                                tier2Error = false
+                            }
                         }
                     },
-                    containerColor = if (isListening) SaffronOrange else NavyBlue,
-                    shape = CircleShape, modifier = Modifier.size(100.dp),
+                    containerColor = when (micPhase) {
+                        "RECORDING" -> SaffronOrange
+                        "TRANSLATING" -> Color(0xFF7C3AED)
+                        "RESULT" -> ForestGreen
+                        else -> NavyBlue
+                    },
+                    shape = CircleShape,
+                    modifier = Modifier.size(110.dp),
                     elevation = FloatingActionButtonDefaults.elevation(6.dp, 10.dp)
                 ) {
-                    Icon(if (isListening) Icons.Default.Stop else Icons.Default.Mic,
-                        "Mic", tint = Color.White, modifier = Modifier.size(46.dp))
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            when (micPhase) {
+                                "RECORDING" -> Icons.Default.Stop
+                                "TRANSLATING" -> Icons.Default.HourglassEmpty
+                                "RESULT" -> Icons.Default.Check
+                                else -> Icons.Default.Mic
+                            },
+                            "Mic", tint = Color.White,
+                            modifier = Modifier.size(36.dp))
+                        if (micPhase == "RECORDING") {
+                            Text("${recordingSeconds}s",
+                                color = Color.White,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Bold)
+                        }
+                    }
                 }
             }
 
             Spacer(Modifier.height(8.dp))
-            if (isListening) {
+            if (micPhase == "RECORDING") {
                 Row(verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.Center) {
                     Box(Modifier.size(10.dp)
@@ -287,10 +349,24 @@ fun TeacherScreen(onStudentMode: () -> Unit, onWorksheet: () -> Unit) {
                         fontWeight = FontWeight.Bold, color = ForestGreen)
                 }
             }
-            Text(if (isListening) "Listening..."
-                 else "Tap mic → speak Hindi → hear Santhali",
-                fontSize = 13.sp, color = Color(0xFF64748B),
+            Text(
+                when (micPhase) {
+                    "READY" -> "Tap to START recording"
+                    "RECORDING" -> "Speaking... tap STOP to translate"
+                    "TRANSLATING" -> "Translating..."
+                    "RESULT" -> "Tap mic to translate another phrase"
+                    else -> "Tap mic to speak Hindi"
+                },
+                fontSize = 13.sp,
+                color = when (micPhase) {
+                    "RECORDING" -> Color.Red
+                    "TRANSLATING" -> Color(0xFF7C3AED)
+                    "RESULT" -> ForestGreen
+                    else -> Color(0xFF64748B)
+                },
                 textAlign = TextAlign.Center,
+                fontWeight = if (micPhase == "RECORDING") 
+                    FontWeight.Bold else FontWeight.Normal,
                 modifier = Modifier.padding(top = 4.dp))
 
             Spacer(Modifier.height(20.dp))
@@ -512,7 +588,7 @@ fun TeacherScreen(onStudentMode: () -> Unit, onWorksheet: () -> Unit) {
                             modifier = Modifier.fillMaxWidth(),
                             shape = RoundedCornerShape(10.dp)
                         ) { Text("🔊 Speak Translation",
-                            fontSize = 14.sp, fontWeight = FontWeight.SemiBold) }
+                            fontSize = 14.sp, fontWeight = FontWeight.Bold) }
                     }
                 }
             }

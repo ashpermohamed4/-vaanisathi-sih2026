@@ -46,3 +46,4 @@ captures/
 
 # Vosk model — too large for GitHub (42MB)
 app/src/main/assets/vosk-model-small-hi-0.22/
+*.hprof
