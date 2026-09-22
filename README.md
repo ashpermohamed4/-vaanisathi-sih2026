@@ -210,6 +210,7 @@ too slow for ≤3s PS requirement on tablet-class CPUs.
 ---
 
 ## 📁 Repository Structure
+```text
 vaanisathi-sih2026/
 ├── app/
 │   └── src/
