@@ -213,39 +213,28 @@ too slow for ≤3s PS requirement on tablet-class CPUs.
 ```text
 vaanisathi-sih2026/
 ├── app/
-│   └── src/
-│       └── main/
-│           └── java/
-│               └── com/
-│                   └── vaanisathi/
-│                       ├── asr/
-│                       │   ├── StudentVoiceRecorder.kt
-│                       │   └── VoskASREngine.kt          # Hindi ASR
-│                       ├── db/
-│                       │   ├── DatabaseSeeder.kt         # 50 phrases
-│                       │   ├── FLNPhrase.kt              # Room entities
-│                       │   └── PhraseDao.kt              # FTS5 search
-│                       ├── nmt/
-│                       │   └── BhashiniTranslator.kt     # Tier 2 API
-│                       ├── tts/
-│                       │   └── AudioPlayer.kt            # TTS engine
-│                       ├── ui/
-│                       │   ├── PhraseCardScreen.kt       # Student mode
-│                       │   ├── TeacherScreen.kt          # Voice mode
-│                       │   └── WorksheetScreen.kt        # PDF generator
-│                       └── MainActivity.kt
+│ └── src/main/java/com/vaanisathi/
+│ ├── asr/VoskASREngine.kt ← Hindi ASR
+│ ├── asr/StudentVoiceRecorder.kt
+│ ├── db/FLNPhrase.kt ← Room entities
+│ ├── db/PhraseDao.kt ← FTS5 search
+│ ├── db/DatabaseSeeder.kt ← 50 phrases
+│ ├── nmt/BhashiniTranslator.kt ← Tier 2 API
+│ ├── tts/AudioPlayer.kt ← TTS engine
+│ ├── ui/TeacherScreen.kt ← Voice mode
+│ ├── ui/PhraseCardScreen.kt ← Student mode
+│ ├── ui/WorksheetScreen.kt ← PDF generator
+│ └── MainActivity.kt
 ├── benchmarks/
-│   ├── results/
-│   │   └── vosk_benchmark_results.txt
-│   ├── benchmark_vosk.py
-│   └── benchmark_whisper.py                         # Rejected model
+│ ├── benchmark_vosk.py
+│ ├── benchmark_whisper.py ← Rejected model
+│ └── results/vosk_benchmark_results.txt
 ├── database/
-│   ├── seed_phrases.sql
-│   └── vaanisathi_schema.sql
+│ ├── vaanisathi_schema.sql
+│ └── seed_phrases.sql
 ├── docs/
-│   └── screenshots/
-└── scripts/
-    └── setup_models.sh
+│ └── screenshots/
+└── scripts/setup_models.sh
 
 ---
 
